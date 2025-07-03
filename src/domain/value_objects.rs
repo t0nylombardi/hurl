@@ -25,11 +25,6 @@ impl Url {
     pub fn as_str(&self) -> String {
         self.0.to_string()
     }
-
-    /// Returns the URL as a String (owned)
-    pub fn to_string(&self) -> String {
-        self.0.to_string()
-    }
 }
 
 /// Represents a validated JSON body

@@ -1,4 +1,3 @@
-use crate::application::services::HttpRequestService;
 use crate::domain::entities::{Request, Response, Method as DomainMethod};
 use crate::domain::value_objects::{JsonBody, Url};
 
@@ -24,11 +23,6 @@ impl HyperHttpClient {
         let client = Client::builder(TokioExecutor::new())
             .build::<HttpConnector, Full<Bytes>>(connector);
         Self { client }
-    }
-
-    /// Creates a configured HTTP request service using this client
-    pub fn create_request_service(self) -> HttpRequestService {
-        HttpRequestService::new(Box::new(self))
     }
 }
 
