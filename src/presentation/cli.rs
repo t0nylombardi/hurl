@@ -1,106 +1,107 @@
 use crate::application::services::HttpRequestService;
 use crate::domain::entities::{Method, Request};
 use crate::domain::value_objects::{JsonBody, Url};
-use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
+use anyhow::{Result, anyhow};
+use clap::Parser;
 use colored::Colorize;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::str::FromStr;
 
 /// CLI configuration for Hurl
-#[derive(Parser)]
-#[command(name = "Hurl", version = "0.1.0", author = "Anthony Lombardi <me@t0nylombardi.com>")]
+#[derive(Parser, Debug)]
+#[command(
+    name = "Hurl",
+    version = "0.1.0",
+    author = "Anthony Lombardi <me@t0nylombardi.com>"
+)]
 #[command(about = "Hurl: Rust-powered requests that hit hard", long_about = None)]
 pub struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
+    /// The URL to send the request to
+    pub url: String,
 
-/// Available Hurl commands
-#[derive(Subcommand)]
-enum Commands {
-    /// Send a GET request to the specified URL
-    Get {
-        /// The URL to send the GET request to
-        #[arg(required = true)]
-        url: String,
-    },
-    /// Send a POST request with JSON data
-    Post {
-        /// The URL to send the POST request to
-        #[arg(required = true)]
-        url: String,
-        /// JSON data to send in the request body
-        #[arg(long)]
-        json: String,
-    },
-    /// Launch an interactive TUI to build requests
-    Wizard,
-    /// Load a profile with default headers and endpoints
-    Profile {
-        /// Profile name (e.g., dev-api)
-        #[arg(required = true)]
-        name: String,
-    },
-    /// Inspect and replay past requests from a log
-    Inspect,
+    /// HTTP method (GET, POST, PUT, DELETE, etc.)
+    #[arg(short, long, default_value = "GET")]
+    pub method: String,
+
+    /// Headers in the format "Key: Value"
+    #[arg(short = 'H', long = "header")]
+    pub headers: Vec<String>,
+
+    /// Request body (usually JSON)
+    #[arg(short = 'd', long = "data")]
+    pub body: Option<String>,
+
+    /// Enable verbose output
+    #[arg(short, long)]
+    pub verbose: bool,
+
+    /// Output response to a file
+    #[arg(short, long)]
+    pub output: Option<String>,
+
+    /// Launch an interactive wizard
+    #[arg(long)]
+    pub wizard: bool,
 }
 
 impl Cli {
-    /// Runs the CLI command
-    ///
-    /// # Arguments
-    /// * `request_service` - The service to handle HTTP requests
-    ///
-    /// # Returns
-    /// * `Ok(())` - If the command succeeds
-    /// * `Err(anyhow::Error)` - If the command fails
     pub async fn run(&self, request_service: &HttpRequestService) -> Result<()> {
-        match &self.command {
-            Commands::Get { url } => {
-                let url = Url::new(url)?;
-                let request = Request {
-                    method: Method::Get,
-                    url,
-                    body: None,
-                };
-                let response = request_service.send_request(request).await?;
-                println!("{}", format!("Status: {}", response.status).cyan());
-                print_body(&response.body)?;
-            }
-            Commands::Post { url, json } => {
-                let url = Url::new(url)?;
-                let body = JsonBody::new(json)?;
-                let request = Request {
-                    method: Method::Post,
-                    url,
-                    body: Some(body),
-                };
-                let response = request_service.send_request(request).await?;
-                println!("{}", format!("Status: {}", response.status).cyan());
-                print_body(&response.body)?;
-            }
-            Commands::Wizard => {
-                println!("{}", "Wizard mode not implemented yet.".yellow());
-            }
-            Commands::Profile { name } => {
-                println!("{}", format!("Profile '{}' not implemented yet.", name).yellow());
-            }
-            Commands::Inspect => {
-                println!("{}", "Inspect mode not implemented yet.".yellow());
-            }
+        if self.wizard {
+            println!("{}", "Wizard mode not implemented yet.".yellow());
+            return Ok(());
         }
+
+        let url = Url::new(&self.url)?;
+        let method = Method::from_str(&self.method)?;
+
+        let headers = parse_headers(&self.headers)?;
+        let body = match &self.body {
+            Some(json) => Some(JsonBody::new(json)?),
+            None => None,
+        };
+
+        let request = Request {
+            method,
+            url,
+            headers: headers.into_iter().collect(),
+            body,
+        };
+
+        let response = request_service.send_request(request).await?;
+
+        if self.verbose {
+            println!("{}", format!("Status: {}", response.status).cyan());
+        }
+
+        if let Some(path) = &self.output {
+            std::fs::write(path, &response.body)?;
+            if self.verbose {
+                println!("Saved response to {}", path);
+            }
+        } else {
+            print_body(&response.body)?;
+        }
+
         Ok(())
     }
 }
 
-/// Prints the response body with colored output
-///
-/// # Arguments
-/// * `body` - The response body as a string
-///
-/// # Returns
-/// * `Ok(())` - If printing succeeds
-/// * `Err(anyhow::Error)` - If JSON parsing fails
+fn parse_headers(raw_headers: &[String]) -> Result<HashMap<String, String>> {
+    let mut headers = HashMap::new();
+    for raw in raw_headers {
+        let parts: Vec<&str> = raw.splitn(2, ':').collect();
+        if parts.len() != 2 {
+            return Err(anyhow!(
+                "Invalid header format: '{}'. Use 'Key: Value'",
+                raw
+            ));
+        }
+        headers.insert(parts[0].trim().to_string(), parts[1].trim().to_string());
+    }
+    Ok(headers)
+}
+
 fn print_body(body: &str) -> Result<()> {
     match serde_json::from_str::<Value>(body) {
         Ok(json) => println!(
